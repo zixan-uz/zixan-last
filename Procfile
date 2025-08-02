@@ -1,0 +1,1 @@
+web: gunicorn zixan_landing.wsgi
