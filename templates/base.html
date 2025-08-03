@@ -6,6 +6,40 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <link rel="stylesheet" href="{% static 'assets/css/main.css' %}" />
+    <style>
+      .popup-box {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0,0,0,0.6);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+      }
+
+      .popup-content {
+        background: #fff;
+        padding: 2em;
+        border-radius: 10px;
+        text-align: center;
+      }
+
+      .popup-links li {
+        list-style: none;
+        margin: 10px 0;
+      }
+
+      .popup-links a {
+        color: #007bff;
+        text-decoration: none;
+        font-size: 1.2em;
+      }
+
+      .popup-links a:hover {
+        text-decoration: underline;
+      }
+    </style>
   </head>
   <body class="is-preload homepage">
     <div id="page-wrapper">
@@ -56,18 +90,17 @@
             <div class="col-5 col-12-medium">
               <ul>
                 <li><a href="https://wa.me/qr/5F5IEQGXU73RN1" class="button large icon solid fa-arrow-circle-right">Chat on WhatsApp?</a></li>
-                <li><a href="#" class="button alt large icon solid fa-question-circle">Contacts</a></li>
+                <li><a href="#" class="button alt large icon solid fa-question-circle" onclick="togglePopup()">Contacts</a></li>
               </ul>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Features (updated) -->
+      <!-- Features -->
       <div id="features-wrapper">
         <div class="container">
           <div class="row">
-
             <div class="col-4 col-12-medium">
               <section class="box feature">
                 <a href="#" class="image featured"><img src="{% static 'images/pic01.jpg' %}" alt="Hospitality & Catering" /></a>
@@ -106,7 +139,6 @@
                 </div>
               </section>
             </div>
-
           </div>
         </div>
       </div>
@@ -179,6 +211,20 @@
       </div>
     </div>
 
+    <!-- Contact Popup -->
+    <div id="contact-popup" class="popup-box">
+      <div class="popup-content">
+        <h3>Contact us via:</h3>
+        <ul class="popup-links">
+          <li><a href="https://wa.me/998901234567" target="_blank">WhatsApp</a></li>
+          <li><a href="https://t.me/zixanagency" target="_blank">Telegram</a></li>
+          <li><a href="https://instagram.com/zixan" target="_blank">Instagram</a></li>
+          <li><a href="viber://chat?number=998901234567" target="_blank">Viber</a></li>
+        </ul>
+        <button onclick="togglePopup()">Close</button>
+      </div>
+    </div>
+
     <!-- Scripts -->
     <script src="{% static 'assets/js/jquery.min.js' %}"></script>
     <script src="{% static 'assets/js/jquery.dropotron.min.js' %}"></script>
@@ -186,6 +232,11 @@
     <script src="{% static 'assets/js/breakpoints.min.js' %}"></script>
     <script src="{% static 'assets/js/util.js' %}"></script>
     <script src="{% static 'assets/js/main.js' %}"></script>
-
+    <script>
+      function togglePopup() {
+        const popup = document.getElementById('contact-popup');
+        popup.style.display = (popup.style.display === 'flex') ? 'none' : 'flex';
+      }
+    </script>
   </body>
 </html>
