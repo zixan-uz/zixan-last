@@ -1,0 +1,152 @@
+{% load static %}
+<!DOCTYPE HTML>
+<html>
+<head>
+  <title>Zixan – Workforce Training</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="{% static 'assets/css/main.css' %}" />
+</head>
+<body class="is-preload right-sidebar">
+  <div id="page-wrapper">
+
+    <!-- Header -->
+    <div id="header-wrapper">
+      <header id="header" class="container">
+
+        <!-- Logo -->
+        <div id="logo">
+          <h1><a href="{% url 'home' %}">Zixan</a></h1>
+          <span>Private Employment Agency</span>
+        </div>
+
+        <!-- Nav -->
+        <nav id="nav">
+          <ul>
+            <li><a href="{% url 'home' %}">Welcome</a></li>
+          <li>
+                <a href="#">Contacts</a>
+                <ul>
+                  <li><a href="#">WhatsApp</a></li>
+                  <li><a href="#">Telegramm</a></li>
+                  <li><a href="#">Viber</a></li>
+                  <li><a href="#">Instagramm</a></li>
+                </ul>
+              </li>
+            <li><a href="{% url 'left_sidebar' %}">Visa Support</a></li>
+            <li class="current"><a href="{% url 'right_sidebar' %}">Workforce Training</a></li>
+            <li><a href="{% url 'no_sidebar' %}">Partnership</a></li>
+          </ul>
+        </nav>
+
+      </header>
+    </div>
+
+    <!-- Main -->
+    <div id="main-wrapper">
+      <div class="container">
+        <div class="row gtr-200">
+          <div class="col-8 col-12-medium">
+            <div id="content">
+
+              <!-- Content -->
+              <article>
+                <h2>Workforce Training and Collaboration</h2>
+                <p>At Zixan, we actively collaborate with Uzbekistan's Employment Center (Mehnat) to prepare qualified personnel for international work opportunities. Our agency conducts thorough assessments of each candidate's profession, experience, and reliability. We also support them in acquiring the necessary skills and knowledge required for employment abroad.</p>
+
+                <p>Through strong cooperation with government-backed training centers (mono-centers) established in each region of Uzbekistan, candidates receive comprehensive training in technical skills, soft skills, and foreign languages. We guide individuals in adapting to foreign work environments, cultures, and professional standards.</p>
+
+                <p>Among the many mono-centers are:</p>
+                <ul>
+                  <li><a href="https://tashkent.mehnat.uz/" target="_blank">Tashkent Mehnat Center</a></li>
+                  <li><a href="https://andijan.mehnat.uz/" target="_blank">Andijan Mehnat Center</a></li>
+                  <li><a href="https://samarkand.mehnat.uz/" target="_blank">Samarkand Mehnat Center</a></li>
+                </ul>
+
+                <p>Additional national portals we cooperate with include:</p>
+                <ul>
+                  <li><a href="https://xorijdaish.uz/" target="_blank">Xorijda Ish</a> — international labor migration support</li>
+                  <li><a href="https://www.mehnat.uz/" target="_blank">Mehnat.uz</a> — Uzbekistan’s national employment platform</li>
+                </ul>
+
+                <p>This collaboration ensures that every Zixan candidate is equipped with practical experience, verified credentials, and readiness to work in line with global standards.</p>
+              </article>
+
+            </div>
+          </div>
+          <div class="col-4 col-12-medium">
+            <div id="sidebar">
+
+              <!-- Sidebar -->
+              <section>
+                <h3>Quick Access</h3>
+                <p>Explore more about our training partners and services.</p>
+                <footer>
+                  <a href="https://www.mehnat.uz/" class="button icon solid fa-info-circle" target="_blank">Visit Mehnat.uz</a>
+                </footer>
+              </section>
+
+              <section>
+                <h3>Helpful Resources</h3>
+                <ul class="style2">
+                  <li><a href="https://xorijdaish.uz/" target="_blank">Xorijda Ish Portal</a></li>
+                  <li><a href="https://tashkent.mehnat.uz/" target="_blank">Tashkent Mono Center</a></li>
+                  <li><a href="https://andijan.mehnat.uz/" target="_blank">Andijan Mono Center</a></li>
+                  <li><a href="https://samarkand.mehnat.uz/" target="_blank">Samarkand Mono Center</a></li>
+                  <li><a href="https://www.mehnat.uz/" target="_blank">Official Mehnat Site</a></li>
+                </ul>
+              </section>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div id="footer-wrapper">
+      <footer id="footer" class="container">
+        <div class="row">
+          {% for i in "1234"|make_list %}
+          <div class="col-3 col-6-medium col-12-small">
+            <section class="widget links">
+              <h3>Resources {{ i }}</h3>
+              <ul class="style2">
+                <li><a href="#">Terms & Conditions</a></li>
+                <li><a href="#">Privacy Policy</a></li>
+                <li><a href="#">Support</a></li>
+                <li><a href="#">Team</a></li>
+                <li><a href="#">Contact</a></li>
+              </ul>
+            </section>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="row">
+          <div class="col-12">
+            <div id="copyright">
+              <ul class="menu">
+                <li>&copy; Zixan. All rights reserved.</li>
+                <li>Design: <a href="http://html5up.net">HTML5 UP</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="{% static 'assets/js/jquery.min.js' %}"></script>
+  <script src="{% static 'assets/js/jquery.dropotron.min.js' %}"></script>
+  <script src="{% static 'assets/js/browser.min.js' %}"></script>
+  <script src="{% static 'assets/js/breakpoints.min.js' %}"></script>
+  <script src="{% static 'assets/js/util.js' %}"></script>
+  <script src="{% static 'assets/js/main.js' %}"></script>
+</body>
+</html>
+
+
+
+

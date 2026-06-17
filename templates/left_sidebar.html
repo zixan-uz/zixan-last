@@ -1,0 +1,152 @@
+{% load static %}
+<!DOCTYPE HTML>
+<html>
+<head>
+  <title>Zixan – Visa Support</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="{% static 'assets/css/main.css' %}" />
+</head>
+<body class="is-preload left-sidebar">
+  <div id="page-wrapper">
+
+    <!-- Header -->
+    <div id="header-wrapper">
+      <header id="header" class="container">
+
+        <!-- Logo -->
+        <div id="logo">
+          <h1><a href="{% url 'home' %}">Zixan</a></h1>
+          <span>Private Employment Agency</span>
+        </div>
+
+        <!-- Nav -->
+        <nav id="nav">
+          <ul>
+            <li><a href="{% url 'home' %}">Welcome</a></li>
+           <li>
+                <a href="#">Contacts</a>
+                <ul>
+                  <li><a href="#">WhatsApp</a></li>
+                  <li><a href="#">Telegramm</a></li>
+                  <li><a href="#">Viber</a></li>
+                  <li><a href="#">Instagramm</a></li>
+                </ul>
+              </li>
+            <li class="current"><a href="{% url 'left_sidebar' %}">Visa Support</a></li>
+            <li><a href="{% url 'right_sidebar' %}">Workforce Training</a></li>
+            <li><a href="{% url 'no_sidebar' %}">Partnership</a></li>
+          </ul>
+        </nav>
+
+      </header>
+    </div>
+
+    <!-- Main -->
+    <div id="main-wrapper">
+      <div class="container">
+        <div class="row gtr-200">
+          <div class="col-4 col-12-medium">
+            <div id="sidebar">
+
+              <!-- Sidebar -->
+              <section>
+                <h3>Visa Centers We Work With</h3>
+                <p>Our agency has strong and reliable cooperation with leading visa application centers in Uzbekistan, ensuring a smooth and professional process for candidates. We actively work with:</p>
+                <ul>
+                  <li><a href="https://visa.vfsglobal.com/uzb/ru/aut/attend-centre/Tashkent" target="_blank"><strong>VFS Global Tashkent</strong></a></li>
+                  <li><a href="https://www.visametric.com/Uzbekistan" target="_blank"><strong>Visametric Tashkent</strong></a></li>
+                  <li><a href="https://uzbek.blsspainvisa.com/russian/contact.php" target="_blank"><strong>BLS Contact Tashkent</strong></a></li>
+                </ul>
+                <footer>
+                  <a href="https://visa.vfsglobal.com/uzb/ru/aut/attend-centre/Tashkent" class="button icon solid fa-info-circle" target="_blank">Find out more</a>
+                </footer>
+              </section>
+
+              <section>
+                <h3>Trusted by Embassies</h3>
+                <ul class="style2">
+                  <li>France Embassy</li>
+                  <li>Bulgaria Embassy</li>
+                  <li>Slovakia Embassy</li>
+                  <li>Poland Embassy</li>
+                  <li>Lithuania Embassy</li>
+                  <li>Croatia Embassy</li>
+                  <li>Latvia Embassy</li>
+                  <li>Germany Embassy</li>
+                  <li>Japan Embassy</li>
+                  <li>South Korea Embassy</li>
+                  <li>...and other diplomatic missions in Uzbekistan</li>
+                </ul>
+              </section>
+
+            </div>
+          </div>
+          <div class="col-8 col-12-medium imp-medium">
+            <div id="content">
+
+              <!-- Content -->
+              <article>
+                <h2>Our Embassy Collaboration</h2>
+                <p>Zixan has established an outstanding reputation for collaborating with numerous embassies and visa centers across Uzbekistan. Our professionalism and transparency in handling employment cases have been highly rated by both clients and official authorities.</p>
+
+                <h3>Visa Support That Works</h3>
+                <p>Through our partnerships with <strong>VFS Global</strong>, <strong>Visametric</strong>, and <strong>BLS International</strong>, we assist in preparing and submitting documents that meet embassy standards. This results in higher acceptance rates and improved trust from European and Asian consulates.</p>
+
+                <p>Thanks to years of proven experience, our agency is often recommended by applicants and consular staff alike. Whether you're applying for work, seasonal, or sponsorship-based visas, we are your reliable guide through the process.</p>
+              </article>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div id="footer-wrapper">
+      <footer id="footer" class="container">
+        <div class="row">
+          {% for i in "1234"|make_list %}
+          <div class="col-3 col-6-medium col-12-small">
+            <section class="widget links">
+              <h3>Resources {{ i }}</h3>
+              <ul class="style2">
+                <li><a href="#">Hiring Guide</a></li>
+                <li><a href="#">Candidate Services</a></li>
+                <li><a href="#">Legal Compliance</a></li>
+                <li><a href="#">About Agency</a></li>
+                <li><a href="#">Partnerships</a></li>
+              </ul>
+            </section>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="row">
+          <div class="col-12">
+            <div id="copyright">
+              <ul class="menu">
+                <li>&copy; Zixan. All rights reserved</li>
+                <li>Design: <a href="http://html5up.net">HTML5 UP</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="{% static 'assets/js/jquery.min.js' %}"></script>
+  <script src="{% static 'assets/js/jquery.dropotron.min.js' %}"></script>
+  <script src="{% static 'assets/js/browser.min.js' %}"></script>
+  <script src="{% static 'assets/js/breakpoints.min.js' %}"></script>
+  <script src="{% static 'assets/js/util.js' %}"></script>
+  <script src="{% static 'assets/js/main.js' %}"></script>
+
+</body>
+</html>
+
+
+
+
