@@ -57,3 +57,83 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+
+# === DIAMOR Phase 1A settings ===
+
+# =====================================================================
+# DIAMOR Phase 1A — settings snippet. ADD these to your existing settings.py.
+# This NEVER replaces your existing DATABASES["default"]. The existing default
+# database (which may be zixan_db) is left exactly as it is.
+# =====================================================================
+import os
+
+# 1) INSTALLED_APPS — add the runtime app:
+#       INSTALLED_APPS += ["diamor_runtime"]
+
+# 2) DATABASES — ADD two NAMED aliases. Merge these WITHOUT overwriting "default".
+#    (Define this after your existing DATABASES, then: DATABASES.update(DIAMOR_DATABASES))
+DIAMOR_DATABASES = {
+    # Django-managed app DB. Holds ONLY diamor_staff_identity_map.
+    "diamor_app": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ["DIAMOR_APP_DB_NAME"],          # diamor_app
+        "USER": os.environ["DIAMOR_APP_DB_USER"],          # diamor_app_user
+        "PASSWORD": os.environ.get("DIAMOR_APP_DB_PASSWORD", ""),
+        "HOST": os.environ["DIAMOR_APP_DB_HOST"],
+        "PORT": os.environ.get("DIAMOR_APP_DB_PORT", "5432"),
+        "OPTIONS": {
+            # TLS to Render PostgreSQL.
+            "sslmode": os.environ.get("DIAMOR_APP_DB_SSLMODE", "require"),
+            # diamor_app_user does not own the DB (Render-safe provisioning), so the
+            # search_path is set here per-connection rather than via ALTER DATABASE.
+            # This is where Django migrates / queries diamor_staff_identity_map.
+            "options": "-c search_path=diamor_app_schema,public",
+        },
+    },
+    # The DIAMOR database (e.g. diamor_staging). RAW SQL ONLY, via a DIAMOR app role.
+    # Phase 1A uses the manager app role (app_manager_admin). NEVER zixan_user.
+    "diamor": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ["DIAMOR_DB_NAME"],              # e.g. diamor_staging
+        "USER": os.environ["DIAMOR_DB_USER"],              # app_manager_admin
+        "PASSWORD": os.environ.get("DIAMOR_DB_PASSWORD", ""),
+        "HOST": os.environ["DIAMOR_DB_HOST"],
+        "PORT": os.environ.get("DIAMOR_DB_PORT", "5432"),
+        # We manage transactions explicitly (session_set_party is transaction-local):
+        "ATOMIC_REQUESTS": False,
+        "OPTIONS": {
+            "sslmode": os.environ.get("DIAMOR_DB_SSLMODE", "require"),
+        },
+    },
+}
+#   DATABASES.update(DIAMOR_DATABASES)
+
+# 3) DATABASE_ROUTERS — add the runtime router. It sends ONLY diamor_runtime models and
+#    migrations to diamor_app, never routes ORM to the raw `diamor` alias, and leaves the
+#    existing default DB for everything else:
+#       DATABASE_ROUTERS = [
+#           *globals().get("DATABASE_ROUTERS", []),
+#           "diamor_runtime.routers.DiamorRuntimeRouter",
+#       ]
+
+# 4) CSRF — DO NOT disable. Phase 1A uses existing Django session auth, so
+#    django.middleware.csrf.CsrfViewMiddleware MUST stay enabled and the staff endpoints
+#    are NOT csrf_exempt. The staff client must send the CSRF token (X-CSRFToken header)
+#    on POST /diamor/phase1/disclosure/decide.
+
+# 5) URLs — include the runtime urls in your ROOT urlconf, e.g. in urls.py:
+#       from django.urls import include, path
+#       urlpatterns += [path("diamor/", include("diamor_runtime.urls"))]
+
+# 6) Migrate ONLY the runtime app, ONLY against diamor_app (never a bare `migrate`):
+#       python manage.py migrate diamor_runtime --database=diamor_app
+
+# === DIAMOR Phase 1A activation ===
+if "diamor_runtime" not in INSTALLED_APPS:
+    INSTALLED_APPS = list(INSTALLED_APPS) + ["diamor_runtime"]
+
+DATABASES.update(DIAMOR_DATABASES)
+
+DATABASE_ROUTERS = list(globals().get("DATABASE_ROUTERS", [])) + [
+    "diamor_runtime.routers.DiamorRuntimeRouter",
+]
