@@ -1,11 +1,13 @@
 import os
 from pathlib import Path
+import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'replace-this-secret-key'
-DEBUG = True
-ALLOWED_HOSTS = ['*']  # можно указать конкретные хосты при необходимости
+# --- Security / environment-sourced settings (fail loud in production) ---
+SECRET_KEY = os.environ["SECRET_KEY"]
+DEBUG = os.environ.get("DEBUG", "False").strip().lower() == "true"
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "zixan-last.onrender.com").split(",") if h.strip()]  # можно указать конкретные хосты при необходимости
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -48,11 +50,14 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'zixan_landing.wsgi.application'
 
+# default is the production app DB (zixan-app-db, Oregon), wired ONLY via DATABASE_URL.
+# Fail loud: a missing DATABASE_URL crashes at boot rather than silently using SQLite.
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    "default": dj_database_url.parse(
+        os.environ["DATABASE_URL"],
+        conn_max_age=0,
+        ssl_require=True,
+    ),
 }
 
 LANGUAGE_CODE = 'en-us'
