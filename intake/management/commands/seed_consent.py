@@ -7,7 +7,7 @@ candidate sees it. Do not ship the placeholder to production.
 
 Usage:
     python manage.py seed_consent
-    python manage.py seed_consent --version 2026-06-v1 --locale ru
+    python manage.py seed_consent --consent-version 2026-06-v1 --locale ru
 """
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -29,13 +29,15 @@ class Command(BaseCommand):
     help = "Create and activate one ConsentVersion for a locale (idempotent)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--version", default="2026-06-v1")
+        # NOTE: Django's BaseCommand reserves --version (it prints the Django
+        # version), so the consent version flag is --consent-version.
+        parser.add_argument("--consent-version", default="2026-06-v1")
         parser.add_argument("--locale", default="ru")
         parser.add_argument("--lawful-basis", default=LawfulBasis.CONSENT)
 
     @transaction.atomic
     def handle(self, *args, **opts):
-        version = opts["version"]
+        version = opts["consent_version"]
         locale = opts["locale"]
         lawful_basis = opts["lawful_basis"]
 
