@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'main',  # твоё приложение
+    'rest_framework',
     'intake',
     'audit',
 ]
