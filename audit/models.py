@@ -7,8 +7,8 @@ mutable operational data. AuditEvent references subjects generically (type + id)
 NOT via ForeignKey, so the chain survives erasure of operational rows.
 
 STRUCTURE only. The insert-and-hash primitive (monotonic sequence assignment,
-hash chaining, and chain verification) is the NEXT deliverable and is the sole
-writer of this table. Do not write AuditEvent rows by hand.
+hash chaining, and chain verification) lives in audit/chain.py and is the sole
+writer of these tables. Do not write AuditEvent or AuditChainHead rows by hand.
 """
 import uuid
 
@@ -60,3 +60,28 @@ class AuditEvent(models.Model):
 
     def __str__(self):
         return f"AuditEvent #{self.sequence} {self.event_type}"
+
+
+class AuditChainHead(models.Model):
+    """Single-row pointer to the tail of the audit chain.
+
+    Written ONLY by audit.chain.append_event (under SELECT ... FOR UPDATE) and
+    seeded once (genesis) by migration 0002. Singleton enforced by a fixed
+    primary key plus a CHECK constraint. Genesis row is (id=1, last_sequence=0,
+    last_hash=NULL); the first real event becomes sequence 1 with prev_hash=NULL.
+    """
+
+    id = models.SmallIntegerField(primary_key=True, default=1, editable=False)
+    last_sequence = models.BigIntegerField()
+    last_hash = models.CharField(max_length=64, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(id=1), name="audit_chain_head_singleton"
+            ),
+        ]
+
+    def __str__(self):
+        return f"AuditChainHead(last_sequence={self.last_sequence})"
