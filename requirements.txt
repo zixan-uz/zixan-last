@@ -4,3 +4,4 @@ whitenoise
 psycopg[binary]>=3.2
 dj-database-url>=2.2
 phonenumbers>=8.13
+djangorestframework>=3.15
