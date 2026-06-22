@@ -1,22 +1,28 @@
 """
-DIAMOR — governed candidate intake operation.
+DIAMOR — governed candidate intake operation (omnichannel).
 
-ingest_candidate() is the single governed entry point that turns a raw intake
-submission into a canonical Candidate, inside ONE transaction:
+ingest_candidate() turns a raw intake submission into a canonical Candidate plus
+one or more CandidateChannelIdentity rows, inside ONE transaction:
 
-  validate + normalize -> resolve identity (create-or-match) -> capture consent
-  -> emit audit events -> record the submission envelope
+  validate profile + identifiers + consent -> resolve identity (create + attach,
+  or flag cross-candidate collision) -> capture consent -> emit audit events ->
+  record the submission envelope
 
-Privacy ordering: validation (including the explicit-consent check) runs BEFORE
-any PII is persisted. An invalid or non-consented attempt rolls back and leaves
-NOTHING — no candidate, no consent, no submission, no audit event.
+Identity policy (DEC-IDENTITY-001 + Revision A), interim state (all inbound
+identifiers unverified):
+  - No presented identifier matches any existing candidate -> create a new
+    candidate and attach all identifiers (unverified/self_asserted).
+  - A presented identifier already belongs to another candidate -> create a new
+    candidate, attach identifiers, and raise IdentityMatchReview against each
+    matched candidate. Never auto-attach to, or merge with, the existing one.
+  - Operator-managed attach-to-existing and verification promotion are a later,
+    separate step; the model supports them already.
 
-Scope: service only. The HTTP/DRF endpoint and Telegram-verified identity wiring
-are later steps. For now actor_type/actor_id are supplied by the caller so audit
-and consent record a real acting identity. Bitrix is intentionally untouched.
+Privacy ordering: validation (incl. the explicit-consent check) runs BEFORE any
+PII is persisted. An invalid/non-consented attempt rolls back, persisting nothing.
 """
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 from django.db import transaction
 from django.utils import timezone
@@ -26,70 +32,92 @@ from audit.models import AuditEventType
 from intake.models import (
     ActorType,
     Candidate,
+    CandidateChannelIdentity,
     Channel,
     ConsentRecord,
     ConsentVersion,
     DuplicateReviewState,
+    IdentifierType,
     IdentityMatchReview,
+    IdentityStatus,
     IntakeSubmission,
     LifecycleStage,
     MatchReviewState,
     ProcessingStatus,
+    VerificationMethod,
 )
 from intake.validators import (
     IntakeValidationError,
     clean_text,
-    coerce_telegram_id,
     normalize_country,
+    normalize_identifier_value,
     normalize_language,
-    normalize_phone,
     parse_date_of_birth,
 )
 
 
 @dataclass
 class IngestResult:
-    outcome: str                       # "created" | "matched" | "duplicate"
+    outcome: str                       # "created" | "duplicate"
     candidate_id: Optional[str]
     submission_id: Optional[str]
     created: bool
     consent_id: Optional[str] = None
-    review_id: Optional[str] = None
+    identity_count: int = 0
+    review_ids: List[str] = field(default_factory=list)
 
 
-def _validate(payload):
+def _validate_profile(payload):
     consent_block = payload.get("consent") or {}
     if consent_block.get("granted") is not True:
         raise IntakeValidationError("consent", "Explicit consent is required before intake.")
 
-    preferred_language = normalize_language(payload.get("preferred_language"))
-    full_name = clean_text(payload.get("full_name"), "full_name", 200)
-    citizenship = normalize_country(payload.get("citizenship"), "citizenship")
-    current_country = normalize_country(payload.get("current_country"), "current_country")
-    desired_country = normalize_country(payload.get("desired_country"), "desired_country")
-    # Dialing region for phone parsing: where the candidate is, then citizenship.
-    default_region = current_country or citizenship
-    phone_e164 = normalize_phone(payload.get("phone"), default_region)
-    date_of_birth = parse_date_of_birth(payload.get("date_of_birth"))
-    profession = clean_text(payload.get("profession"), "profession", 120, required=False)
-    telegram_id = coerce_telegram_id(payload.get("telegram_id"))
-    telegram_username = clean_text(
-        payload.get("telegram_username"), "telegram_username", 64, required=False
-    )
-
     return {
-        "preferred_language": preferred_language,
-        "full_name": full_name,
-        "citizenship": citizenship,
-        "current_country": current_country,
-        "desired_country": desired_country,
-        "phone_e164": phone_e164,
-        "date_of_birth": date_of_birth,
-        "profession": profession,
-        "telegram_id": telegram_id,
-        "telegram_username": telegram_username,
+        "preferred_language": normalize_language(payload.get("preferred_language")),
+        "full_name": clean_text(payload.get("full_name"), "full_name", 200),
+        "citizenship": normalize_country(payload.get("citizenship"), "citizenship"),
+        "current_country": normalize_country(payload.get("current_country"), "current_country"),
+        "desired_country": normalize_country(payload.get("desired_country"), "desired_country"),
+        "date_of_birth": parse_date_of_birth(payload.get("date_of_birth")),
+        "profession": clean_text(payload.get("profession"), "profession", 120, required=False),
         "consent_evidence": consent_block.get("evidence") or {},
     }
+
+
+def _validate_identifiers(identifiers_raw, default_region):
+    if not identifiers_raw:
+        raise IntakeValidationError("identifiers", "At least one identifier is required.")
+
+    seen = set()
+    out = []
+    for idx, item in enumerate(identifiers_raw):
+        position = idx + 1
+        channel = str(item.get("channel") or "").strip()
+        if channel not in Channel.values:
+            raise IntakeValidationError(
+                "identifiers", f"Unknown channel '{channel}' in identifier #{position}."
+            )
+        itype = str(item.get("identifier_type") or "").strip()
+        if itype not in IdentifierType.values:
+            raise IntakeValidationError(
+                "identifiers", f"Unknown identifier_type '{itype}' in identifier #{position}."
+            )
+        value = normalize_identifier_value(itype, item.get("identifier_value"), default_region)
+
+        key = (itype, value)
+        if key in seen:
+            continue  # dedup exact duplicates within the same request
+        seen.add(key)
+        out.append({
+            "channel": channel,
+            "identifier_type": itype,
+            "identifier_value": value,
+            "source_attribution": item.get("source_attribution") or {},
+        })
+
+    if not out:
+        raise IntakeValidationError("identifiers", "At least one valid identifier is required.")
+    return out
 
 
 def _active_consent_version(locale):
@@ -99,65 +127,65 @@ def _active_consent_version(locale):
     return cv
 
 
-def _resolve_identity(v, channel):
-    """Create-or-match the canonical candidate. Returns (candidate, created, review).
+def _resolve_identity(profile, identifiers, channel):
+    """Create a new candidate, attach the presented identifiers (unverified), and
+    raise an IdentityMatchReview for each existing candidate that already owns one
+    of those identifiers. Returns (candidate, created, added_identities, reviews)."""
+    matched_candidate_ids = set()
+    for ident in identifiers:
+        owner_ids = CandidateChannelIdentity.objects.filter(
+            identifier_type=ident["identifier_type"],
+            identifier_value=ident["identifier_value"],
+            status=IdentityStatus.ACTIVE,
+        ).values_list("candidate_id", flat=True)
+        matched_candidate_ids.update(owner_ids)
 
-    telegram_id is the strong per-account key. An ambiguous phone-only collision
-    (a DIFFERENT candidate already on this phone) is flagged for operator review,
-    never auto-merged.
-    """
-    telegram_id = v["telegram_id"]
-
-    if telegram_id is not None:
-        match = (
-            Candidate.objects.select_for_update()
-            .filter(telegram_id=telegram_id)
-            .first()
-        )
-        if match is not None:
-            # Returning candidate. v1 policy: no silent overwrite of stored fields;
-            # the field-update policy is a separate, later decision.
-            return match, False, None
-
-    phone_qs = Candidate.objects.filter(phone_e164=v["phone_e164"])
-    if telegram_id is not None:
-        phone_qs = phone_qs.exclude(telegram_id=telegram_id)
-    ambiguous_against = phone_qs.first()
+    has_collision = len(matched_candidate_ids) > 0
 
     candidate = Candidate.objects.create(
         lifecycle_stage=LifecycleStage.INTAKE,
         source_channel=channel,
-        preferred_language=v["preferred_language"],
-        telegram_id=telegram_id,
-        telegram_username=v["telegram_username"],
-        phone_e164=v["phone_e164"],
-        full_name=v["full_name"],
-        citizenship_iso=v["citizenship"],
-        current_country_iso=v["current_country"],
-        desired_country_iso=v["desired_country"],
-        date_of_birth=v["date_of_birth"],
-        profession=v["profession"],
+        preferred_language=profile["preferred_language"],
+        full_name=profile["full_name"],
+        citizenship_iso=profile["citizenship"],
+        current_country_iso=profile["current_country"],
+        desired_country_iso=profile["desired_country"],
+        date_of_birth=profile["date_of_birth"],
+        profession=profile["profession"],
         duplicate_review_state=(
-            DuplicateReviewState.PENDING_REVIEW
-            if ambiguous_against is not None
-            else DuplicateReviewState.CLEAR
+            DuplicateReviewState.PENDING_REVIEW if has_collision else DuplicateReviewState.CLEAR
         ),
     )
 
-    review = None
-    if ambiguous_against is not None:
+    added_identities = []
+    for ident in identifiers:
+        cci = CandidateChannelIdentity.objects.create(
+            candidate=candidate,
+            channel=ident["channel"],
+            identifier_type=ident["identifier_type"],
+            identifier_value=ident["identifier_value"],
+            is_verified=False,
+            verification_method=VerificationMethod.SELF_ASSERTED,
+            source_attribution=ident["source_attribution"],
+            status=IdentityStatus.ACTIVE,
+        )
+        added_identities.append(cci)
+
+    reviews = []
+    for existing_id in matched_candidate_ids:
         review = IdentityMatchReview.objects.create(
             candidate=candidate,
-            matched_against=ambiguous_against,
-            reason=f"Phone already linked to candidate {ambiguous_against.id}",
+            matched_against_id=existing_id,
+            reason="Presented identifier already associated with another candidate.",
             state=MatchReviewState.OPEN,
         )
+        reviews.append(review)
 
-    return candidate, True, review
+    return candidate, True, added_identities, reviews
 
 
 @transaction.atomic
-def ingest_candidate(*, payload, idempotency_key, channel, actor_type, actor_id):
+def ingest_candidate(*, payload, identifiers, idempotency_key, channel, actor_type, actor_id):
     if channel not in Channel.values:
         raise ValueError(f"Unknown channel '{channel}'.")
     if actor_type not in ActorType.values:
@@ -165,7 +193,6 @@ def ingest_candidate(*, payload, idempotency_key, channel, actor_type, actor_id)
     if not idempotency_key:
         raise ValueError("idempotency_key is required.")
 
-    # Idempotency: a prior committed submission with this key returns its result.
     prior = IntakeSubmission.objects.filter(idempotency_key=idempotency_key).first()
     if prior is not None:
         return IngestResult(
@@ -176,18 +203,20 @@ def ingest_candidate(*, payload, idempotency_key, channel, actor_type, actor_id)
         )
 
     # Validate FIRST — nothing persists for an invalid or non-consented attempt.
-    v = _validate(payload)
-    consent_version = _active_consent_version(v["preferred_language"])
+    profile = _validate_profile(payload)
+    norm_identifiers = _validate_identifiers(identifiers, default_region=profile["current_country"])
+    consent_version = _active_consent_version(profile["preferred_language"])
 
-    # Record the submission envelope (payload now validated and consented).
     submission = IntakeSubmission.objects.create(
         idempotency_key=idempotency_key,
         channel=channel,
-        raw_payload=payload,
+        raw_payload={"candidate": payload, "identifiers": identifiers},
         processing_status=ProcessingStatus.VALIDATED,
     )
 
-    candidate, created, review = _resolve_identity(v, channel)
+    candidate, created, added_identities, reviews = _resolve_identity(
+        profile, norm_identifiers, channel
+    )
 
     now = timezone.now()
     consent = ConsentRecord.objects.create(
@@ -198,57 +227,53 @@ def ingest_candidate(*, payload, idempotency_key, channel, actor_type, actor_id)
         locale_shown=consent_version.locale,
         actor_type=actor_type,
         actor_id=actor_id,
-        evidence=v["consent_evidence"],
+        evidence=profile["consent_evidence"],
     )
 
-    # Audit events — each inside this same transaction (atomic with the writes above).
+    # Audit — each inside this transaction (atomic with the writes above).
     append_event(
         event_type=AuditEventType.INTAKE_SUBMITTED.value,
-        actor_type=actor_type,
-        actor_id=actor_id,
-        subject_type="candidate",
-        subject_id=str(candidate.id),
-        source=channel,
-        correlation_id=idempotency_key,
+        actor_type=actor_type, actor_id=actor_id,
+        subject_type="candidate", subject_id=str(candidate.id),
+        source=channel, correlation_id=idempotency_key,
         payload={"submission_id": str(submission.id)},
     )
     append_event(
-        event_type=(
-            AuditEventType.CANDIDATE_CREATED.value
-            if created
-            else AuditEventType.CANDIDATE_MATCHED.value
-        ),
-        actor_type=actor_type,
-        actor_id=actor_id,
-        subject_type="candidate",
-        subject_id=str(candidate.id),
-        source=channel,
-        correlation_id=idempotency_key,
+        event_type=AuditEventType.CANDIDATE_CREATED.value,
+        actor_type=actor_type, actor_id=actor_id,
+        subject_type="candidate", subject_id=str(candidate.id),
+        source=channel, correlation_id=idempotency_key,
         payload={"source_channel": channel, "lifecycle_stage": str(candidate.lifecycle_stage)},
     )
+    for cci in added_identities:
+        append_event(
+            event_type=AuditEventType.CHANNEL_IDENTITY_ADDED.value,
+            actor_type=actor_type, actor_id=actor_id,
+            subject_type="channel_identity", subject_id=str(cci.id),
+            source=channel, correlation_id=idempotency_key,
+            payload={
+                "channel": str(cci.channel),
+                "identifier_type": str(cci.identifier_type),
+                "is_verified": cci.is_verified,
+            },
+        )
     append_event(
         event_type=AuditEventType.CONSENT_GRANTED.value,
-        actor_type=actor_type,
-        actor_id=actor_id,
-        subject_type="consent_record",
-        subject_id=str(consent.id),
-        source=channel,
-        correlation_id=idempotency_key,
+        actor_type=actor_type, actor_id=actor_id,
+        subject_type="consent_record", subject_id=str(consent.id),
+        source=channel, correlation_id=idempotency_key,
         payload={
             "consent_version": consent_version.version,
             "locale": consent_version.locale,
             "lawful_basis": str(consent_version.lawful_basis),
         },
     )
-    if review is not None:
+    for review in reviews:
         append_event(
             event_type=AuditEventType.IDENTITY_REVIEW_FLAGGED.value,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            subject_type="identity_match_review",
-            subject_id=str(review.id),
-            source=channel,
-            correlation_id=idempotency_key,
+            actor_type=actor_type, actor_id=actor_id,
+            subject_type="identity_match_review", subject_id=str(review.id),
+            source=channel, correlation_id=idempotency_key,
             payload={"matched_against": str(review.matched_against_id)},
         )
 
@@ -257,10 +282,11 @@ def ingest_candidate(*, payload, idempotency_key, channel, actor_type, actor_id)
     submission.save(update_fields=["candidate", "processing_status"])
 
     return IngestResult(
-        outcome="created" if created else "matched",
+        outcome="created",
         candidate_id=str(candidate.id),
         submission_id=str(submission.id),
-        created=created,
+        created=True,
         consent_id=str(consent.id),
-        review_id=str(review.id) if review is not None else None,
+        identity_count=len(added_identities),
+        review_ids=[str(r.id) for r in reviews],
     )
