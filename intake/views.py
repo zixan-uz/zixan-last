@@ -1,15 +1,13 @@
 """
 DIAMOR — intake HTTP layer (thin).
 
-A single endpoint, POST /intake/candidates, that wraps the governed
-intake.service.ingest_candidate operation. No business logic lives here:
-the view does authentication, envelope-shape validation, and response mapping.
+POST /intake/candidates wraps intake.service.ingest_candidate. The view does
+authentication, envelope-shape validation, and response mapping only.
 
-INTERNAL-ONLY (this step): access is gated by a shared-secret header
-(X-Intake-Token vs the INTAKE_INTERNAL_TOKEN env var), failing closed if unset.
-This is an interim guard to be REPLACED by server-verified Telegram identity /
-operator authentication in a later step. actor_type/actor_id are taken from the
-request body as a temporary placeholder for the same reason.
+INTERNAL-ONLY (interim): gated by a shared-secret header (X-Intake-Token vs the
+INTAKE_INTERNAL_TOKEN env var), failing closed if unset. To be replaced by
+server-verified Telegram identity / operator auth. actor_type/actor_id come from
+the request body as a temporary placeholder.
 """
 import os
 import secrets
@@ -36,9 +34,6 @@ class InternalTokenPermission(BasePermission):
 
 
 class IntakeCandidateView(APIView):
-    # Explicit per-view config so global DRF defaults and diamor_runtime's
-    # session/CSRF endpoints are unaffected. No SessionAuthentication => DRF does
-    # not enforce CSRF on this token-authenticated, server-to-server endpoint.
     authentication_classes = []
     permission_classes = [InternalTokenPermission]
 
@@ -62,6 +57,7 @@ class IntakeCandidateView(APIView):
         try:
             result = ingest_candidate(
                 payload=data["candidate"],
+                identifiers=data["identifiers"],
                 idempotency_key=idempotency_key,
                 channel=data["channel"],
                 actor_type=data["actor"]["type"],
@@ -84,7 +80,8 @@ class IntakeCandidateView(APIView):
             "submission_id": result.submission_id,
             "created": result.created,
             "consent_id": result.consent_id,
-            "review_id": result.review_id,
+            "identity_count": result.identity_count,
+            "review_ids": result.review_ids,
         }
         http_status = (
             status.HTTP_201_CREATED if result.outcome == "created" else status.HTTP_200_OK
