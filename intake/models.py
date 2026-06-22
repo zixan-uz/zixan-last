@@ -1,16 +1,15 @@
 """
 DIAMOR — intake domain models.
 
-Single governed entry point for candidates. This module defines STRUCTURE only.
-All business logic (validation, normalization, identity resolution, consent
-verification, audit emission) lives in the intake operation and the audit
-primitive — never here.
+Candidate is PROFILE-ONLY. All channel identifiers live in
+CandidateChannelIdentity (one row per identifier ever seen), per DEC-IDENTITY-001.
+Identity resolution is centralized in intake.service under a conservative policy:
+verified identifiers are strong keys; unverified identifiers are signals that
+trigger manual review on cross-candidate collision; profiles are never
+auto-merged.
 
 Per-field data-tier classification:
   T0 public/operational | T1 internal | T2 personal | T3 sensitive personal
-
-Routing: this app is NOT diamor_runtime, so under DiamorRuntimeRouter it lives on
-the `default` (managed, PITR-backed, system-of-record) database.
 """
 import uuid
 
@@ -19,8 +18,6 @@ from django.db.models import Q
 
 
 class LifecycleStage(models.TextChoices):
-    # Provisional v1 set. The canonical 15-stage enum is owned by the lifecycle
-    # module and will reconcile with / extend this. INTAKE is the entry stage.
     INTAKE = "intake", "Intake"
     SCREENING = "screening", "Screening"
     MATCHING = "matching", "Matching"
@@ -51,7 +48,12 @@ class LawfulBasis(models.TextChoices):
 
 class Channel(models.TextChoices):
     TELEGRAM = "telegram", "Telegram"
-    WEB = "web", "Web portal"
+    WHATSAPP = "whatsapp", "WhatsApp"
+    INSTAGRAM = "instagram", "Instagram"
+    INSTAGRAM_COMMENT = "instagram_comment", "Instagram comment"
+    WEBSITE = "website", "Website"
+    PHONE = "phone", "Phone"
+    EMAIL = "email", "Email"
     OPERATOR = "operator", "Operator (manual)"
 
 
@@ -75,8 +77,33 @@ class MatchReviewState(models.TextChoices):
     RESOLVED_DISTINCT = "resolved_distinct", "Resolved — distinct"
 
 
+class IdentifierType(models.TextChoices):
+    TELEGRAM_ID = "telegram_id", "Telegram ID"
+    TELEGRAM_USERNAME = "telegram_username", "Telegram username"
+    PHONE_E164 = "phone_e164", "Phone (E.164)"
+    WHATSAPP_ID = "whatsapp_id", "WhatsApp ID"
+    INSTAGRAM_USER_ID = "instagram_user_id", "Instagram user ID"
+    INSTAGRAM_USERNAME = "instagram_username", "Instagram username"
+    EMAIL = "email", "Email"
+    WEBSITE_SESSION = "website_session", "Website session"
+
+
+class VerificationMethod(models.TextChoices):
+    SELF_ASSERTED = "self_asserted", "Self-asserted (unverified)"
+    OPERATOR_CONFIRMED = "operator_confirmed", "Operator confirmed"
+    OTP_VERIFIED = "otp_verified", "OTP verified"
+    PLATFORM_AUTHENTICATED = "platform_authenticated", "Platform authenticated"
+
+
+class IdentityStatus(models.TextChoices):
+    ACTIVE = "active", "Active"
+    MERGED = "merged", "Merged"
+    BLOCKED = "blocked", "Blocked"
+
+
 class Candidate(models.Model):
-    """Canonical candidate identity. `intake` is the sole writer in v1."""
+    """Canonical candidate PROFILE. No channel identifiers — those live in
+    CandidateChannelIdentity."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)  # T0
@@ -85,23 +112,11 @@ class Candidate(models.Model):
     lifecycle_stage = models.CharField(  # T1
         max_length=32, choices=LifecycleStage.choices, default=LifecycleStage.INTAKE
     )
-    source_channel = models.CharField(max_length=16, choices=Channel.choices)  # T1
-    preferred_language = models.CharField(max_length=8)  # T1  e.g. ru, uz, tg, ky
+    source_channel = models.CharField(max_length=24, choices=Channel.choices)  # T1
+    preferred_language = models.CharField(max_length=8)  # T1
 
-    # --- Identity keys ---
-    # telegram_id is the strongest per-account match key. unique=True with null=True:
-    # Postgres treats NULLs as distinct, so this enforces "<=1 candidate per telegram_id"
-    # while still allowing future non-Telegram candidates (web portal) to have no id.
-    telegram_id = models.BigIntegerField(null=True, blank=True, unique=True)  # T2
-    telegram_username = models.CharField(max_length=64, null=True, blank=True)  # T2
-    # phone normalized to E.164 at the boundary. Deliberately NOT unique — shared
-    # devices/intermediaries are common in this population; uniqueness would create
-    # false collisions. Phone is a *signal* for identity resolution, not a hard key.
-    phone_e164 = models.CharField(max_length=20)  # T2
-
-    # --- Profile (normalized at the boundary) ---
     full_name = models.CharField(max_length=200)            # T2
-    citizenship_iso = models.CharField(max_length=2)        # T2  ISO 3166-1 alpha-2
+    citizenship_iso = models.CharField(max_length=2)        # T2
     current_country_iso = models.CharField(max_length=2)    # T2
     desired_country_iso = models.CharField(max_length=2)    # T2
     date_of_birth = models.DateField()                      # T3  age>=18 enforced at the operation
@@ -114,27 +129,78 @@ class Candidate(models.Model):
     )
 
     class Meta:
-        indexes = [
-            models.Index(fields=["phone_e164"]),
-            models.Index(fields=["telegram_id"]),
-            models.Index(fields=["duplicate_review_state"]),
-        ]
+        indexes = [models.Index(fields=["duplicate_review_state"])]
 
     def __str__(self):
         return f"Candidate {self.id} ({self.full_name})"
 
 
-class ConsentVersion(models.Model):
-    """Immutable, versioned consent notice. At most one active version per locale."""
+class CandidateChannelIdentity(models.Model):
+    """One identifier ever seen for a candidate (ContactPoint).
+
+    A candidate may hold MANY rows of the same identifier_type (multiple phones,
+    Instagram accounts, etc.). The only per-candidate prohibition is the exact
+    same identifier twice. A *verified* identifier maps to exactly one active
+    candidate globally; unverified identifiers may collide (which triggers
+    manual review, not an error). Verification is server-decided; inbound is
+    recorded self_asserted/unverified.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    version = models.CharField(max_length=32)        # e.g. "2026-06-v1"
-    locale = models.CharField(max_length=8)          # ru, uz, tg, ky
-    purposes = models.JSONField(default=list)        # list[str] of processing purposes
+    candidate = models.ForeignKey(
+        "intake.Candidate", on_delete=models.PROTECT, related_name="channel_identities"
+    )
+    channel = models.CharField(max_length=24, choices=Channel.choices)        # T1
+    identifier_type = models.CharField(max_length=32, choices=IdentifierType.choices)  # T1
+    identifier_value = models.CharField(max_length=255)                       # T2/T3 (normalized)
+    is_verified = models.BooleanField(default=False)
+    verification_method = models.CharField(
+        max_length=32,
+        choices=VerificationMethod.choices,
+        default=VerificationMethod.SELF_ASSERTED,
+    )
+    source_attribution = models.JSONField(default=dict)  # ad id, keyword, campaign, referral
+    status = models.CharField(
+        max_length=16, choices=IdentityStatus.choices, default=IdentityStatus.ACTIVE
+    )
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            # No duplicate of the EXACT identifier on one candidate. Multiple
+            # DIFFERENT values of the same type are allowed (many phones, etc.).
+            models.UniqueConstraint(
+                fields=["candidate", "identifier_type", "identifier_value"],
+                name="uq_candidate_identifier",
+            ),
+            # A given VERIFIED identifier resolves to exactly one active candidate.
+            # Unverified duplicates across candidates are permitted (-> review).
+            models.UniqueConstraint(
+                fields=["identifier_type", "identifier_value"],
+                condition=Q(is_verified=True, status="active"),
+                name="uq_verified_identifier_active",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["identifier_type", "identifier_value"]),
+            models.Index(fields=["candidate"]),
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.identifier_type}={self.identifier_value} (verified={self.is_verified})"
+
+
+class ConsentVersion(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    version = models.CharField(max_length=32)
+    locale = models.CharField(max_length=8)
+    purposes = models.JSONField(default=list)
     lawful_basis = models.CharField(
         max_length=32, choices=LawfulBasis.choices, default=LawfulBasis.CONSENT
     )
-    notice_body = models.TextField()                 # the exact text shown to the candidate
+    notice_body = models.TextField()
     effective_from = models.DateTimeField()
     is_active = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -144,7 +210,6 @@ class ConsentVersion(models.Model):
             models.UniqueConstraint(
                 fields=["version", "locale"], name="uq_consent_version_locale"
             ),
-            # Partial unique index (Postgres): enforces <=1 active version per locale.
             models.UniqueConstraint(
                 fields=["locale"],
                 condition=Q(is_active=True),
@@ -157,8 +222,6 @@ class ConsentVersion(models.Model):
 
 
 class ConsentRecord(models.Model):
-    """First-class, append-only consent grant. Never updated except revocation fields."""
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     candidate = models.ForeignKey(
         "intake.Candidate", on_delete=models.PROTECT, related_name="consent_records"
@@ -167,11 +230,11 @@ class ConsentRecord(models.Model):
         "intake.ConsentVersion", on_delete=models.PROTECT, related_name="records"
     )
     granted_at = models.DateTimeField()
-    channel = models.CharField(max_length=16, choices=Channel.choices)
+    channel = models.CharField(max_length=24, choices=Channel.choices)
     locale_shown = models.CharField(max_length=8)
     actor_type = models.CharField(max_length=16, choices=ActorType.choices)
-    actor_id = models.CharField(max_length=128)      # server-verified actor identifier
-    evidence = models.JSONField(default=dict)        # affirmative-action evidence
+    actor_id = models.CharField(max_length=128)
+    evidence = models.JSONField(default=dict)
     expires_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     revocation_reason = models.CharField(max_length=255, null=True, blank=True)
@@ -185,13 +248,10 @@ class ConsentRecord(models.Model):
 
 
 class IntakeSubmission(models.Model):
-    """Raw submission envelope. Separates 'what was submitted' from the canonical
-    candidate. raw_payload is PII-bearing (T2/T3) and is in scope for retention/erasure."""
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     idempotency_key = models.CharField(max_length=128, unique=True)
     received_at = models.DateTimeField(auto_now_add=True)
-    channel = models.CharField(max_length=16, choices=Channel.choices)
+    channel = models.CharField(max_length=24, choices=Channel.choices)
     raw_payload = models.JSONField()  # T2/T3 — erasure scope
     processing_status = models.CharField(
         max_length=16,
@@ -212,8 +272,6 @@ class IntakeSubmission(models.Model):
 
 
 class IdentityMatchReview(models.Model):
-    """Operator queue for ambiguous identity matches. No automatic destructive merges."""
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     candidate = models.ForeignKey(
         "intake.Candidate", on_delete=models.PROTECT, related_name="match_reviews"
